@@ -6,6 +6,7 @@ using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 using Oxide.Core.RemoteConsole;
 using Oxide.Game.Rust.Libraries.Covalence;
+using Rust.Ai.Gen2;
 using Steamworks;
 using System;
 using System.Collections.Generic;
@@ -63,6 +64,34 @@ namespace Oxide.Game.Rust
 
                 npc.playerTargetDecisionStartTime = 0f;
                 return 0f;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Called when an NPC tries to target an entity
+        /// </summary>
+        /// <param name="sense"></param>
+        /// <param name="target"></param>
+        /// <returns></returns>
+        [HookMethod("IOnNpcTarget")]
+        private object IOnNpcTarget(SenseComponent sense, BaseEntity target)
+        {
+            if (!sense || !target)
+            {
+                return null;
+            }
+
+            BaseEntity baseEntity = sense.baseEntity;
+            if (!baseEntity)
+            {
+                return null;
+            }
+
+            if (Interface.CallHook("OnNpcTarget", baseEntity, target) != null)
+            {
+                return false;
             }
 
             return null;
@@ -286,6 +315,16 @@ namespace Oxide.Game.Rust
                 return true;
             }
 
+            // Check if chat command
+            string chatCommandPrefix = CommandHandler.GetChatCommandPrefix(message);
+            if ( chatCommandPrefix != null )
+            {
+                TryRunPlayerCommand( basePlayer, message, chatCommandPrefix );
+                return false;
+            }
+
+            message = message.EscapeRichText();
+
             // Check if using Rust+ app
             if (basePlayer == null || !basePlayer.IsConnected)
             {
@@ -305,8 +344,7 @@ namespace Oxide.Game.Rust
         /// <param name="basePlayer"></param>
         /// <param name="message"></param>
         /// <returns></returns>
-        [HookMethod("IOnPlayerCommand")]
-        private void IOnPlayerCommand(BasePlayer basePlayer, string message)
+        private void TryRunPlayerCommand(BasePlayer basePlayer, string message, string commandPrefix)
         {
             if (basePlayer == null)
             {
@@ -316,13 +354,13 @@ namespace Oxide.Game.Rust
             string str = message.Replace("\n", "").Replace("\r", "").Trim();
 
             // Check if it is a chat command
-            if (string.IsNullOrEmpty(str) || str[0] != '/' || str.Length <= 1)
+            if (string.IsNullOrEmpty(str))
             {
                 return;
             }
 
             // Parse the command
-            ParseCommand(str.TrimStart('/'), out string cmd, out string[] args);
+            ParseCommand(str.Substring(commandPrefix.Length), out string cmd, out string[] args);
             if (cmd == null)
             {
                 return;
@@ -621,22 +659,33 @@ namespace Oxide.Game.Rust
         private void OnServerInformationUpdated()
         {
             // Add Steam tags for Oxide
-            SteamServer.GameTags += ",oxide";
+            SteamServer.GameTags += ",^o";
             if (Interface.Oxide.Config.Options.Modded)
             {
-                SteamServer.GameTags += ",modded";
+                SteamServer.GameTags += "^z";
             }
         }
 
         #endregion Server Hooks
 
-        #region Depricated Hooks
+        #region Structure hooks
 
-        [HookMethod( "OnMapMarkerRemove" )]
-        private object OnMapMarkerRemove(BasePlayer player, List<ProtoBuf.MapNote> mapMarker, int index)
+        [HookMethod("IOnCupboardAuthorize")]
+        private object IOnCupboardAuthorize(ulong userID, BasePlayer player, BuildingPrivlidge privlidge)
         {
-            return Interface.Oxide.CallDeprecatedHook("OnMapMarkerRemove", "OnMapMarkerRemove(BasePlayer player, List<MapNote> mapMarker, int index)",
-                new DateTime(2023, 12, 31), player, mapMarker[index]);
+            if (userID == player.userID)
+            {
+                if (Interface.CallHook("OnCupboardAuthorize", privlidge, player) != null)
+                {
+                    return true;
+                }
+            }
+            else if (Interface.CallHook("OnCupboardAssign", privlidge, userID, player) != null)
+            {
+                return true;
+            }
+
+            return null;
         }
 
         #endregion
